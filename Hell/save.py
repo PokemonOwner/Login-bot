@@ -15,7 +15,7 @@ from Hell.strings import strings, HELP_TXT
 logging.basicConfig(level=logging.INFO)
 
 # Rate limiting storage
-last_command_time = {}
+user_command_time = {}
 
 # Helper function to get data from dictionary
 def get(obj, key, default=None):
@@ -56,22 +56,24 @@ def progress(current, total, message, type):
     with open(f'{message.id}{type}status.txt', "w") as fileup:
         fileup.write(f"{current * 100 / total:.1f}%")
 
-# Decorator for command debouncing
-def debounce_command(func):
+# Command decorator for debouncing
+def command_lock(func):
     async def wrapper(client, message):
         user_id = message.from_user.id
         current_time = time.time()
 
-        if user_id in last_command_time and (current_time - last_command_time[user_id]) < 1:
+        # Check if user has executed a command recently
+        if user_id in user_command_time and (current_time - user_command_time[user_id]) < 1:
             return  # Ignore command if sent too quickly
 
-        last_command_time[user_id] = current_time
+        # Update the last command time
+        user_command_time[user_id] = current_time
         return await func(client, message)
     return wrapper
 
 # Start command
 @Client.on_message(filters.command(["start"]) & filters.private)
-@debounce_command
+@command_lock
 async def send_start(client: Client, message: Message):
     logging.info(f"Received /start command from {message.from_user.mention}")
     buttons = [
@@ -92,14 +94,14 @@ async def send_start(client: Client, message: Message):
 
 # Help command
 @Client.on_message(filters.command(["help"]) & filters.private)
-@debounce_command
+@command_lock
 async def send_help(client: Client, message: Message):
     logging.info(f"Received /help command from {message.from_user.mention}")
     await client.send_message(message.chat.id, f"{HELP_TXT}")
 
 # Save command
 @Client.on_message(filters.text & filters.private)
-@debounce_command
+@command_lock
 async def save(client: Client, message: Message):
     if "https://t.me/" in message.text:
         datas = message.text.split("/")
@@ -241,3 +243,4 @@ def get_message_type(msg):
     if msg.text:
         return "Text"
     return "Unknown"
+
