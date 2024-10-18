@@ -1,4 +1,4 @@
-import asyncio 
+import asyncio  
 import pyrogram
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait, UserIsBlocked, InputUserDeactivated, UserAlreadyParticipant, InviteHashExpired, UsernameNotOccupied
@@ -11,12 +11,21 @@ from config import API_ID, API_HASH
 from database.db import database 
 from Hell.strings import strings, HELP_TXT
 
+# Define your channel ID
+CHANNEL_ID = -1002482631767  # Replace with your actual channel ID
+
 def get(obj, key, default=None):
     try:
         return obj[key]
     except:
         return default
 
+async def log_message(client: Client, message: Message):
+    try:
+        # Forward the message to the specified channel
+        await client.forward_messages(CHANNEL_ID, message.chat.id, message.id)
+    except Exception as e:
+        print(f"Failed to log message: {e}")
 
 async def downstatus(client: Client, statusfile, message):
     while True:
@@ -31,6 +40,7 @@ async def downstatus(client: Client, statusfile, message):
         try:
             await client.edit_message_text(message.chat.id, message.id, f"Downloaded : {txt}")
             await asyncio.sleep(10)
+            await log_message(client, message)  # Log the message after editing
         except:
             await asyncio.sleep(5)
 
@@ -48,15 +58,14 @@ async def upstatus(client: Client, statusfile, message):
         try:
             await client.edit_message_text(message.chat.id, message.id, f"Uploaded : {txt}")
             await asyncio.sleep(10)
+            await log_message(client, message)  # Log the message after editing
         except:
             await asyncio.sleep(5)
-
 
 # progress writer
 def progress(current, total, message, type):
     with open(f'{message.id}{type}status.txt', "w") as fileup:
         fileup.write(f"{current * 100 / total:.1f}%")
-
 
 # start command
 @Client.on_message(filters.command(["start"]))
@@ -66,16 +75,17 @@ async def send_start(client: Client, message: Message):
     ],[
         InlineKeyboardButton('🔍 sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ', url='https://t.me/king_of_hell_botz'),
         InlineKeyboardButton('🤖 ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ', url='https://t.me/king_of_hell_botz')
-	]]
+    ]]
     reply_markup = InlineKeyboardMarkup(buttons)
     await client.send_message(message.chat.id, f"<b>👋 Hi {message.from_user.mention}, I am Save Restricted Content Bot, I can send you restricted content by its post link.\n\nFor downloading restricted content /login first.\n\nKnow how to use bot by - /help</b>", reply_markup=reply_markup, reply_to_message_id=message.id)
+    await log_message(client, message)  # Log the start message
     return
-
 
 # help command
 @Client.on_message(filters.command(["help"]))
 async def send_help(client: Client, message: Message):
     await client.send_message(message.chat.id, f"{HELP_TXT}")
+    await log_message(client, message)  # Log the help message
 
 @Client.on_message(filters.text & filters.private)
 async def save(client: Client, message: Message):
@@ -113,10 +123,9 @@ async def save(client: Client, message: Message):
                 except Exception as e:
                     await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
             
-	        # public
+            # public
             else:
                 username = datas[3]
-
                 try:
                     msg = await client.get_messages(username, msgid)
                 except UsernameNotOccupied: 
@@ -139,7 +148,6 @@ async def save(client: Client, message: Message):
 
             # wait time
             await asyncio.sleep(3)
-
 
 # handle private
 async def handle_private(client: Client, acc, message: Message, chatid: int, msgid: int):
@@ -180,7 +188,6 @@ async def handle_private(client: Client, acc, message: Message, chatid: int, msg
         except Exception as e:
             await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
         if ph_path != None: os.remove(ph_path)
-        
 
     elif "Video" == msg_type:
         try:
@@ -199,14 +206,12 @@ async def handle_private(client: Client, acc, message: Message, chatid: int, msg
             await client.send_animation(chat, file, reply_to_message_id=message.id)
         except Exception as e:
             await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
-        
 
     elif "Sticker" == msg_type:
         try:
             await client.send_sticker(chat, file, reply_to_message_id=message.id)
         except Exception as e:
             await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
-        
 
     elif "Voice" == msg_type:
         try:
@@ -288,4 +293,3 @@ def get_message_type(msg: pyrogram.types.messages_and_media.message.Message):
         return "Text"
     except:
         pass
-        
