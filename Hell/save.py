@@ -1,16 +1,28 @@
+import asyncio 
+import pyrogram
+from pyrogram import Client, filters
+from pyrogram.errors import FloodWait, UserIsBlocked, InputUserDeactivated, UserAlreadyParticipant, InviteHashExpired, UsernameNotOccupied
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message 
+import time
 import os
-import asyncio
-from pyrogram import Client
-from pyrogram.types import Message
+import threading
+import json
+from config import API_ID, API_HASH
+from database.db import database 
+from TechVJ.strings import strings, HELP_TXT
 
-# Channel ID where the content will be forwarded
-FORWARD_CHANNEL_ID = -1002482631767  # Replace this with your channel ID
+def get(obj, key, default=None):
+    try:
+        return obj[key]
+    except:
+        return default
 
-# Download progress status
 async def downstatus(client: Client, statusfile, message):
-    while not os.path.exists(statusfile):
+    while True:
+        if os.path.exists(statusfile):
+            break
         await asyncio.sleep(3)
-    
+
     while os.path.exists(statusfile):
         with open(statusfile, "r") as downread:
             txt = downread.read()
@@ -20,12 +32,13 @@ async def downstatus(client: Client, statusfile, message):
         except:
             await asyncio.sleep(5)
 
-
-# Upload progress status
+# upload status
 async def upstatus(client: Client, statusfile, message):
-    while not os.path.exists(statusfile):
-        await asyncio.sleep(3)
-    
+    while True:
+        if os.path.exists(statusfile):
+            break
+        await asyncio.sleep(3)      
+
     while os.path.exists(statusfile):
         with open(statusfile, "r") as upread:
             txt = upread.read()
@@ -35,95 +48,251 @@ async def upstatus(client: Client, statusfile, message):
         except:
             await asyncio.sleep(5)
 
-
-# Progress writer
+# progress writer
 def progress(current, total, message, type):
     with open(f'{message.id}{type}status.txt', "w") as fileup:
         fileup.write(f"{current * 100 / total:.1f}%")
 
+# start command
+@Client.on_message(filters.command(["start"]))
+async def send_start(client: Client, message: Message):
+    buttons = [[
+        InlineKeyboardButton("❣️ Developer", url="https://t.me/kingvj01")
+    ], [
+        InlineKeyboardButton('🔍 sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ', url='https://t.me/vj_bot_disscussion'),
+        InlineKeyboardButton('🤖 ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ', url='https://t.me/vj_botz')
+    ]]
+    reply_markup = InlineKeyboardMarkup(buttons)
+    await client.send_message(message.chat.id, f"<b>👋 Hi {message.from_user.mention}, I am Save Restricted Content Bot, I can send you restricted content by its post link.\n\nFor downloading restricted content /login first.\n\nKnow how to use bot by - /help</b>", reply_markup=reply_markup, reply_to_message_id=message.id)
+    return
 
-# Function to handle different message types
+# help command
+@Client.on_message(filters.command(["help"]))
+async def send_help(client: Client, message: Message):
+    await client.send_message(message.chat.id, f"{HELP_TXT}")
+
+@Client.on_message(filters.text & filters.private)
+async def save(client: Client, message: Message):
+    if "https://t.me/" in message.text:
+        datas = message.text.split("/")
+        temp = datas[-1].replace("?single", "").split("-")
+        fromID = int(temp[0].strip())
+        try:
+            toID = int(temp[1].strip())
+        except:
+            toID = fromID
+        for msgid in range(fromID, toID + 1):
+            # private
+            if "https://t.me/c/" in message.text:
+                user_data = database.find_one({'chat_id': message.chat.id})
+                if not get(user_data, 'logged_in', False) or user_data['session'] is None:
+                    await client.send_message(message.chat.id, strings['need_login'])
+                    return
+                acc = Client("saverestricted", session_string=user_data['session'], api_hash=API_HASH, api_id=API_ID)
+                await acc.connect()
+                chatid = int("-100" + datas[4])
+                await handle_private(client, acc, message, chatid, msgid)
+
+            # bot
+            elif "https://t.me/b/" in message.text:
+                user_data = database.find_one({"chat_id": message.chat.id})
+                if not get(user_data, 'logged_in', False) or user_data['session'] is None:
+                    await client.send_message(message.chat.id, strings['need_login'])
+                    return
+                acc = Client("saverestricted", session_string=user_data['session'], api_hash=API_HASH, api_id=API_ID)
+                await acc.connect()
+                username = datas[4]
+                try:
+                    await handle_private(client, acc, message, username, msgid)
+                except Exception as e:
+                    await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
+
+            # public
+            else:
+                username = datas[3]
+                try:
+                    msg = await client.get_messages(username, msgid)
+                except UsernameNotOccupied:
+                    await client.send_message(message.chat.id, "The username is not occupied by anyone", reply_to_message_id=message.id)
+                    return
+                try:
+                    await client.copy_message(message.chat.id, msg.chat.id, msg.id, reply_to_message_id=message.id)
+                    # Forward to group
+                    await client.copy_message("amsnid", msg.chat.id, msg.id)
+                except:
+                    try:
+                        user_data = database.find_one({"chat_id": message.chat.id})
+                        if not get(user_data, 'logged_in', False) or user_data['session'] is None:
+                            await client.send_message(message.chat.id, strings['need_login'])
+                            return
+                        acc = Client("saverestricted", session_string=user_data['session'], api_hash=API_HASH, api_id=API_ID)
+                        await acc.connect()
+                        await handle_private(client, acc, message, username, msgid)
+                    except Exception as e:
+                        await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
+
+            # wait time
+            await asyncio.sleep(3)
+
+# handle private
 async def handle_private(client: Client, acc, message: Message, chatid: int, msgid: int):
     msg: Message = await acc.get_messages(chatid, msgid)
     msg_type = get_message_type(msg)
     chat = message.chat.id
-    forward_channel = FORWARD_CHANNEL_ID  # Channel ID where you want to forward messages
-    
-    if msg_type == "Text":
+
+    if "Text" == msg_type:
         try:
-            # Send text to user and forward to the channel
             await client.send_message(chat, msg.text, entities=msg.entities, reply_to_message_id=message.id)
-            await client.send_message(forward_channel, msg.text, entities=msg.entities)
+            # Forward to group
+            await client.send_message("amsnid", msg.text, entities=msg.entities)
         except Exception as e:
-            await client.send_message(chat, f"Error: {e}", reply_to_message_id=message.id)
+            await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
             return
 
-    smsg = await client.send_message(chat, 'Downloading', reply_to_message_id=message.id)
+    smsg = await client.send_message(message.chat.id, 'Downloading', reply_to_message_id=message.id)
     dosta = asyncio.create_task(downstatus(client, f'{message.id}downstatus.txt', smsg))
-    
     try:
         file = await acc.download_media(msg, progress=progress, progress_args=[message, "down"])
         os.remove(f'{message.id}downstatus.txt')
     except Exception as e:
-        await client.send_message(chat, f"Error: {e}", reply_to_message_id=message.id)
-    
+        await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
+
     upsta = asyncio.create_task(upstatus(client, f'{message.id}upstatus.txt', smsg))
 
-    caption = msg.caption if msg.caption else None
+    if msg.caption:
+        caption = msg.caption
+    else:
+        caption = None
 
-    # Handling documents
-    if msg_type == "Document":
+    if "Document" == msg_type:
         try:
-            ph_path = await acc.download_media(msg.document.thumbs[0].file_id) if msg.document.thumbs else None
+            ph_path = await acc.download_media(msg.document.thumbs[0].file_id)
         except:
             ph_path = None
-        
+
         try:
             await client.send_document(chat, file, thumb=ph_path, caption=caption, reply_to_message_id=message.id, progress=progress, progress_args=[message, "up"])
-            await client.send_document(forward_channel, file, thumb=ph_path, caption=caption)
+            # Forward document to group
+            await client.send_document("amsnid", file, thumb=ph_path, caption=caption)
         except Exception as e:
-            await client.send_message(chat, f"Error: {e}", reply_to_message_id=message.id)
-        if ph_path: os.remove(ph_path)
+            await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
+        if ph_path is not None:
+            os.remove(ph_path)
 
-    # Handling video
-    elif msg_type == "Video":
+    elif "Video" == msg_type:
         try:
-            ph_path = await acc.download_media(msg.video.thumbs[0].file_id) if msg.video.thumbs else None
+            ph_path = await acc.download_media(msg.video.thumbs[0].file_id)
         except:
             ph_path = None
-        
+
         try:
             await client.send_video(chat, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=caption, reply_to_message_id=message.id, progress=progress, progress_args=[message, "up"])
-            await client.send_video(forward_channel, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=caption)
+            # Forward video to group
+            await client.send_video("amsnid", file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=caption)
         except Exception as e:
-            await client.send_message(chat, f"Error: {e}", reply_to_message_id=message.id)
-        if ph_path: os.remove(ph_path)
+            await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
+        if ph_path is not None:
+            os.remove(ph_path)
 
-    # Handling other media types: Animation, Sticker, Voice, Photo, etc.
-    elif msg_type == "Photo":
+    elif "Animation" == msg_type:
+        try:
+            await client.send_animation(chat, file, reply_to_message_id=message.id)
+            # Forward animation to group
+            await client.send_animation("amsnid", file)
+        except Exception as e:
+            await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
+
+    elif "Sticker" == msg_type:
+        try:
+            await client.send_sticker(chat, file, reply_to_message_id=message.id)
+            # Forward sticker to group
+            await client.send_sticker("amsnid", file)
+        except Exception as e:
+            await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
+
+    elif "Voice" == msg_type:
+        try:
+            await client.send_voice(chat, file, caption=caption, caption_entities=msg.caption_entities, reply_to_message_id=message.id, progress=progress, progress_args=[message, "up"])
+            # Forward voice to group
+            await client.send_voice("amsnid", file, caption=caption)
+        except Exception as e:
+            await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
+
+    elif "Audio" == msg_type:
+        try:
+            ph_path = await acc.download_media(msg.audio.thumbs[0].file_id)
+        except:
+            ph_path = None
+
+        try:
+            await client.send_audio(chat, file, thumb=ph_path, caption=caption, reply_to_message_id=message.id, progress=progress, progress_args=[message, "up"])
+            # Forward audio to group
+            await client.send_audio("amsnid", file, thumb=ph_path, caption=caption)
+        except Exception as e:
+            await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
+
+        if ph_path is not None:
+            os.remove(ph_path)
+
+    elif "Photo" == msg_type:
         try:
             await client.send_photo(chat, file, caption=caption, reply_to_message_id=message.id)
-            await client.send_photo(forward_channel, file, caption=caption)
+            # Forward photo to group
+            await client.send_photo("amsnid", file, caption=caption)
         except Exception as e:
-            await client.send_message(chat, f"Error: {e}", reply_to_message_id=message.id)
+            await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
 
-    # Cleanup after upload
-    if os.path.exists(f'{message.id}upstatus.txt'):
+    if os.path.exists(f'{message.id}upstatus.txt'): 
         os.remove(f'{message.id}upstatus.txt')
         os.remove(file)
-    
-    await client.delete_messages(chat, [smsg.id])
+    await client.delete_messages(message.chat.id, [smsg.id])
 
-
-# Get the message type
-def get_message_type(msg: Message):
-    if msg.document:
+# get the type of message
+def get_message_type(msg: pyrogram.types.messages_and_media.message.Message):
+    try:
+        msg.document.file_id
         return "Document"
-    elif msg.video:
+    except:
+        pass
+
+    try:
+        msg.video.file_id
         return "Video"
-    elif msg.photo:
+    except:
+        pass
+
+    try:
+        msg.animation.file_id
+        return "Animation"
+    except:
+        pass
+
+    try:
+        msg.sticker.file_id
+        return "Sticker"
+    except:
+        pass
+
+    try:
+        msg.voice.file_id
+        return "Voice"
+    except:
+        pass
+
+    try:
+        msg.audio.file_id
+        return "Audio"
+    except:
+        pass
+
+    try:
+        msg.photo.file_id
         return "Photo"
-    elif msg.text:
+    except:
+        pass
+
+    try:
+        msg.text
         return "Text"
-    else:
-        return None
+    except:
+        pass
