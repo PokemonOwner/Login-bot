@@ -1,10 +1,8 @@
-# VJ Save Restricted Bot
+# King Of Hell Bot
 
 *A Telegram Bot, Which can send you restricted content by it's post link with <b>login feature</b>*
 
 ---
-
-<b>Watch Video Tutorial - [Click Here](https://youtu.be/CXw4NByRAac)</b>
 
 ## Variables
 
@@ -49,7 +47,3 @@ https://t.me/c/xxxx/101 - 120
 
 _note that space in between doesn't matter_
 
-### Credits
-
-- <b>Thanks To [BipinKrish](https://github.com/bipinkrish) For Base Repo
-- Thanks To [Tech VJ](https://telegram.dog/Kingvj01) For Modify & Added Login Feature.</b>
