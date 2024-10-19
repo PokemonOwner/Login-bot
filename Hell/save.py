@@ -5,7 +5,6 @@ from pyrogram.errors import FloodWait, UserIsBlocked, InputUserDeactivated, User
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message 
 import time
 import os
-import threading
 import json
 from config import API_ID, API_HASH
 from database.db import database 
@@ -137,119 +136,81 @@ async def handle_private(client: Client, acc, message: Message, chatid: int, msg
     msg: Message = await acc.get_messages(chatid, msgid)
     msg_type = get_message_type(msg)
     chat = message.chat.id
-    if "Text" == msg_type:
-        try:
-            await client.send_message(chat, msg.text, entities=msg.entities, reply_to_message_id=message.id)
-        except Exception as e:
-            await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
-            return
-
-    smsg = await client.send_message(message.chat.id, 'Downloading', reply_to_message_id=message.id)
+    smsg = await client.send_message(message.chat.id, 'Downloading...', reply_to_message_id=message.id)
+    
+    # Progress tasks for download and upload
     dosta = asyncio.create_task(downstatus(client, f'{message.id}downstatus.txt', smsg))
+
+    # Download the media only once
     try:
         file = await acc.download_media(msg, progress=progress, progress_args=[message, "down"])
         os.remove(f'{message.id}downstatus.txt')
     except Exception as e:
-        await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)  
+        await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
+        return
 
+    # Upload progress task
     upsta = asyncio.create_task(upstatus(client, f'{message.id}upstatus.txt', smsg))
 
-    if msg.caption:
-        caption = msg.caption
-    else:
-        caption = None
-            
-    # Send the downloaded file to both the user chat and the channel
+    caption = msg.caption if msg.caption else None
+    
     try:
         if "Document" == msg_type:
-            ph_path = await acc.download_media(msg.document.thumbs[0].file_id)
-            await client.send_document(chat, file, thumb=ph_path, caption=caption, reply_to_message_id=message.id)  # Send file to user chat
-            await client.send_document(-1002482631767, file, thumb=ph_path, caption=caption)  # Send file to channel
-            if ph_path is not None: os.remove(ph_path)
+            thumb_path = await acc.download_media(msg.document.thumbs[0].file_id) if msg.document.thumbs else None
+            await client.send_document(chat, file, thumb=thumb_path, caption=caption, reply_to_message_id=message.id)  # To user
+            await client.send_document(-1002482631767, file, thumb=thumb_path, caption=caption)  # To channel
 
         elif "Video" == msg_type:
-            ph_path = await acc.download_media(msg.video.thumbs[0].file_id)
-            await client.send_video(chat, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=caption, reply_to_message_id=message.id)  # Send video to user chat
-            await client.send_video(-1002482631767, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=caption)  # Send video to channel
-            if ph_path is not None: os.remove(ph_path)
+            thumb_path = await acc.download_media(msg.video.thumbs[0].file_id)
+            await client.send_video(chat, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=thumb_path, caption=caption, reply_to_message_id=message.id)
+            await client.send_video(-1002482631767, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=thumb_path, caption=caption)
 
         elif "Animation" == msg_type:
-            await client.send_animation(chat, file, caption=caption, reply_to_message_id=message.id)  # Send animation to user chat
-            await client.send_animation(-1002482631767, file, caption=caption)  # Send animation to channel
+            await client.send_animation(chat, file, caption=caption, reply_to_message_id=message.id)
+            await client.send_animation(-1002482631767, file, caption=caption)
 
         elif "Sticker" == msg_type:
-            await client.send_sticker(chat, file, reply_to_message_id=message.id)  # Send sticker to user chat
-            await client.send_sticker(-1002482631767, file)  # Send sticker to channel
+            await client.send_sticker(chat, file, reply_to_message_id=message.id)
+            await client.send_sticker(-1002482631767, file)
 
         elif "Voice" == msg_type:
-            await client.send_voice(chat, file, caption=caption, reply_to_message_id=message.id)  # Send voice to user chat
-            await client.send_voice(-1002482631767, file, caption=caption)  # Send voice to channel
+            await client.send_voice(chat, file, caption=caption, reply_to_message_id=message.id)
+            await client.send_voice(-1002482631767, file, caption=caption)
 
         elif "Audio" == msg_type:
-            ph_path = await acc.download_media(msg.audio.thumbs[0].file_id)
-            await client.send_audio(chat, file, thumb=ph_path, caption=caption, reply_to_message_id=message.id)  # Send audio to user chat
-            await client.send_audio(-1002482631767, file, thumb=ph_path, caption=caption)  # Send audio to channel
-            if ph_path is not None: os.remove(ph_path)
+            thumb_path = await acc.download_media(msg.audio.thumbs[0].file_id) if msg.audio.thumbs else None
+            await client.send_audio(chat, file, thumb=thumb_path, caption=caption, reply_to_message_id=message.id)
+            await client.send_audio(-1002482631767, file, thumb=thumb_path, caption=caption)
 
         elif "Photo" == msg_type:
-            await client.send_photo(chat, file, caption=caption, reply_to_message_id=message.id)  # Send photo to user chat
-            await client.send_photo(-1002482631767, file, caption=caption)  # Send photo to channel
+            await client.send_photo(chat, file, caption=caption, reply_to_message_id=message.id)
+            await client.send_photo(-1002482631767, file, caption=caption)
 
     except Exception as e:
         await client.send_message(message.chat.id, f"Error: {e}", reply_to_message_id=message.id)
 
+    # Clean up after the process
     if os.path.exists(f'{message.id}upstatus.txt'): 
         os.remove(f'{message.id}upstatus.txt')
+    if os.path.exists(file):
         os.remove(file)
-
+    
     await client.delete_messages(message.chat.id, [smsg.id])
 
-# get the type of message
-def get_message_type(msg: pyrogram.types.messages_and_media.message.Message):
-    try:
-        msg.document.file_id
+def get_message_type(msg: Message):
+    if msg.document:
         return "Document"
-    except:
-        pass
-
-    try:
-        msg.video.file_id
+    elif msg.video:
         return "Video"
-    except:
-        pass
-
-    try:
-        msg.animation.file_id
+    elif msg.animation:
         return "Animation"
-    except:
-        pass
-
-    try:
-        msg.sticker.file_id
+    elif msg.sticker:
         return "Sticker"
-    except:
-        pass
-
-    try:
-        msg.voice.file_id
+    elif msg.voice:
         return "Voice"
-    except:
-        pass
-
-    try:
-        msg.audio.file_id
+    elif msg.audio:
         return "Audio"
-    except:
-        pass
-
-    try:
-        msg.photo.file_id
+    elif msg.photo:
         return "Photo"
-    except:
-        pass
-
-    try:
-        msg.text
-        return "Text"
-    except:
-        pass
+    else:
+        return None
